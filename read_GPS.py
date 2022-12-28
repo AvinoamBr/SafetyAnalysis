@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import numpy as np
 import pynmea2
+from sklearn.metrics.pairwise import haversine_distances
 from matplotlib import dates
 
 logger = logging.getLogger()
@@ -26,12 +27,20 @@ def datetime_from_file_path(file_path):
     return datetime.strptime(date_str,"%Y%m%d")
 # ----------------- /Helper methods -------------------------------------------------
 
+def nmea_2latlon(nmea_lat,nmea_lon):
+    def _nmea_2_deg(nmea):
+        nmea = float(nmea)
+        deg = int(nmea/100)
+        sec = nmea - deg * 100
+        return deg + sec/60
+    return (_nmea_2_deg(nmea_lat), _nmea_2_deg(nmea_lon))
 
 class GPS_Data(object):
-    def __init__(self, site, *args, **kwargs):
-        self.worked = pd.DataFrame()
+    def __init__(self, site, iopath, *args, **kwargs):
+        self.frame_work_status = pd.DataFrame()
         self.speed_array = np.array([]) # place holder for : np.array n*2: [[date_time, speed],...]
         self.site = site
+        self.iopath = iopath
 
     def _read_GPS_file(self, fn):
         '''
@@ -41,10 +50,12 @@ class GPS_Data(object):
         :return
          np.array n*2: [[date_time, speed],...]
         '''
-
+        haversin_speed_data = []
         gps_data = []
         date = datetime_from_file_path(fn)
         year,month,day = date.year,date.month,date.day
+        position = [0, np.array([None,None])]
+        positions = []
         with open(fn,'r') as f:
             for l in f.readlines():
                 try:
@@ -62,10 +73,44 @@ class GPS_Data(object):
                             continue
                         speed = float(speed_value)
                         gps_data.append((date_time,speed))
+                    elif ll.startswith("$GNGNS"):
+                        parsed = pynmea2.parse(ll)
+                        lat = parsed.lat
+                        if lat=='':
+                            continue
+                        nmea_lat = parsed.lat
+                        nmea_lon = parsed.lon
+                        lat,lon = nmea_2latlon(nmea_lat,nmea_lon)
+                        positions.append((lat,lon))
+                        pos_rad = np.deg2rad([lat,lon])
+                        new_postion = (ms_from_midnight,pos_rad)
+                        if position[1].any():
+                            EARTH_RADIUS = 6371* 1000 # [m]
+                            MS_TO_SEC = 1000
+                            MPS_TO_KPH = 3.6
+                            UNKNOWN_BUG_FACTOR = 1.0
+                            speed_dx = haversine_distances(np.array([new_postion[1],position[1]]))[0][1]\
+                                       * EARTH_RADIUS /  (new_postion[0]-position[0]) * MS_TO_SEC * MPS_TO_KPH *UNKNOWN_BUG_FACTOR
+                            print(f"{speed:.2f}, {speed_dx:.2f} mode_indicator:{parsed.mode_indicator}")
+                            haversin_speed_data.append((date_time,speed_dx))
+                        position = new_postion
 
                 except Exception as e:
                     continue
         speed_array = np.array(gps_data)
+        haversin_speed_array = np.array(haversin_speed_data)
+        plt.plot(speed_array.T[0],speed_array.T[1], label='speed GPVTG')
+        plt.plot(haversin_speed_array.T[0],haversin_speed_array.T[1], label='speed GNGNS position diff')
+        plt.xlabel("time")
+        plt.ylabel("KPH")
+        plt.title(os.path.split(fn)[1])
+        plt.legend()
+        plt.show()
+
+        positions = np.array(positions).T
+        plt.plot(positions[0],positions[1])
+        plt.show()
+
         return speed_array
 
     def read_GPS_files_from_folder(self, path):
@@ -77,6 +122,7 @@ class GPS_Data(object):
         for (i,fn) in  enumerate(sorted(GPS_files)):
             datetime_from_file_path(fn)
             logging.info(f"{i}/{numfiles} read file {fn}")
+
             try:
                 speeds = self._read_GPS_file(fn)
             except Exception as e:
@@ -87,10 +133,12 @@ class GPS_Data(object):
         self.speed_array = speed_array
         self.gps_df = pd.DataFrame(self.speed_array, columns=['datetime', 'speed'])
 
-    def save(self, fn):
+    def save(self, fn=None):
+        fn = fn or f"{self.iopath}/speed.npy"
         np.save(fn, self.speed_array)
 
-    def load(self, fn):
+    def load(self, fn=None):
+        fn = fn or f"{self.iopath}/speed.npy"
         self.speed_array = np.load(fn, allow_pickle=True)
         self.gps_df = pd.DataFrame(self.speed_array, columns=['datetime', 'speed'])
 
@@ -129,7 +177,7 @@ class GPS_Data(object):
                               columns = ['stopped_ids', 'started_ids', 'starts', 'ends', 'duration','pause_event'])
         continous_events = []
         # self.gps_df = pd.DataFrame(gps_array, columns=['datetime', 'speed'])
-        numevents = events.shape[0]
+        numevents = self.events.shape[0]
         for i,e in self.events.iterrows():
             continous = is_event_continous(e,  self.gps_df) # event is considered continous if signal is not stopping for more that one minute.
             print(f"{i}/{numevents} duration: {e.duration}, continous: {continous}")
@@ -138,10 +186,12 @@ class GPS_Data(object):
 
         return self.gps_df, self.events
 
-    def save_work_stop_events(self, fn):
+    def save_work_stop_events(self, fn=None):
+        fn = fn or f"{self.iopath}/work_stop_events.npy"
         self.events.to_csv(fn)
 
-    def load_work_stop_events(self, fn):
+    def load_work_stop_events(self, fn=None):
+        fn = fn or f"{self.iopath}/work_stop_events.npy"
         self.events = pd.read_csv(fn)
 
     def tag_frame_status(self):
@@ -154,37 +204,44 @@ class GPS_Data(object):
         :return:
         '''
 
-        self.worked = pd.Series(["worked"] * self.gps_df.shape[0])
+        self.frame_work_status = pd.Series(["worked"] * self.gps_df.shape[0])
         for (i, e) in self.events.iterrows():
             if not e.continous_events:
-                self.worked[e.stopped_ids:e.started_ids] = 'off'
+                self.frame_work_status[e.stopped_ids:e.started_ids] = 'off'
             elif e.pause_event:
-                self.worked[e.stopped_ids:e.started_ids] = 'pause'
+                self.frame_work_status[e.stopped_ids:e.started_ids] = 'pause'
+        self.frame_work_status[self.gps_df.speed.isna()] = 'missing_NA'
 
-    def save_frame_status(self, fn):
-        self.worked.to_csv(fn, index=False)
+    def save_frame_status(self, fn=None):
+        fn = fn or f"{self.iopath}/work_frame_status.csv"
+        self.frame_work_status.to_csv(fn, index=False,header=False)
 
-    def load_frame_status(self, fn):
-        self.worked = pd.read_csv(fn, names=['worked']).worked
+    def load_frame_status(self, fn=None):
+        fn = fn or f"{self.iopath}/work_frame_status.csv"
+        self.frame_work_status = pd.read_csv(fn, names=['frame_work_status'],dtype=str).frame_work_status
 
-    def plot_frame_status(self):
+    def plot_frame_status(self, save=False):
         gps_df = self.gps_df
-        for (work_status,color) in [('worked','g'), ('off','r'), ('pause','y')]:
-            speed = (gps_df[self.worked == work_status]).speed
-            d = gps_df[self.worked == work_status].datetime
+        for (work_status,color) in [('off','r'), ('pause','y'), ('worked','g')]:
+            speed = (gps_df[self.frame_work_status == work_status]).speed
+            d = gps_df[self.frame_work_status == work_status].datetime
             plt.scatter(d, speed, label=work_status, s=1, color=color)
-        plt.scatter(self.speed_array.T[0][self.speed_array.T[1] == None], np.zeros_like(self.speed_array.T[0][self.speed_array.T[1] == None]),
-                    label="missing_data",s=1)
+        d = gps_df[self.frame_work_status == 'missing_NA'].datetime
+        plt.scatter(d, np.zeros(d.shape[0]), label=work_status, s=1, color='k')
         plt.legend()
         plt.title(self.site)
+        if save:
+            fn = f"{self.iopath}/frame_status.png"
+            plt.savefig(fn)
         plt.show()
 
     def count_by_day(self):
-        worked = self.worked
+        worked = self.frame_work_status
         self.gps_df['date'] = self.gps_df['datetime'].apply(lambda dt: dt.date())
-        worked_by_day = self.gps_df[worked == 'worked']['date'].value_counts().sort_index()
-        pause_by_day = self.gps_df[worked == 'pause']['date'].value_counts().sort_index()
-        off_by_day = self.gps_df[worked == 'off']['date'].value_counts().sort_index()
+        worked_by_day = self.gps_df[worked == 'worked']['date'].value_counts().sort_index() / (60*60)
+        pause_by_day = self.gps_df[worked == 'pause']['date'].value_counts().sort_index() / (60*60)
+        off_by_day = self.gps_df[worked == 'off']['date'].value_counts().sort_index() / (60*60)
+        missing_by_day = self.gps_df[worked == 'missing_NA']['date'].value_counts().sort_index() / (60*60)
 
         start_date = min((worked_by_day.index[0], pause_by_day.index[0], off_by_day.index[0]))
         end_date = max((worked_by_day.index[-1], pause_by_day.index[-1], off_by_day.index[-1]))
@@ -193,7 +250,7 @@ class GPS_Data(object):
         all_dates = np.append(all_dates, end_date)
 
         # add zeros were there is missing data, to enable bars bottom
-        for work_status in [worked_by_day, pause_by_day, off_by_day]:
+        for work_status in [worked_by_day, pause_by_day, off_by_day, missing_by_day]:
             for d in all_dates:
                 if d not in work_status.index.values:
                     work_status.loc[d] = 0
@@ -201,16 +258,26 @@ class GPS_Data(object):
         self.pause_by_day = pause_by_day.sort_index()
         self.worked_by_day = worked_by_day.sort_index()
         self.off_by_day = off_by_day.sort_index()
+        self.missing_by_day = missing_by_day.sort_index()
 
-    def plot_by_day(self):
+
+    def plot_by_day(self, save=False):
+        plt.figure(figsize=(25,15))
         plt.bar(x=self.worked_by_day.index, height=self.worked_by_day, label='work',
                 color='g')
         plt.bar(x=self.pause_by_day.index, height=self.pause_by_day, label='pause',
                 bottom=self.worked_by_day, color='y')
         plt.bar(x=self.off_by_day.index, height=self.off_by_day, label='parking',
                 bottom=self.pause_by_day + self.worked_by_day, color='r')
+        plt.bar(x=self.missing_by_day.index, height=self.missing_by_day, label='missing_NA',
+                bottom=self.pause_by_day + self.worked_by_day + self.off_by_day, color='k')
         plt.legend()
         plt.title(self.site)
+        ticks = np.arange(self.off_by_day.index[0]-timedelta(self.off_by_day.index[0].weekday()+1) ,self.off_by_day.index[-1], timedelta(days=7))
+        plt.xticks(ticks, rotation = 45)
+        if save:
+            fn = f"{self.iopath}/plot_by_day.png"
+            plt.savefig(fn)
         plt.show()
 
 
@@ -222,28 +289,31 @@ if __name__ == "__main__":
     # site = "Mesubim" # not ready
 
 
-    path = f"/media/performance/Data/Cemex/Readymix/{site}/*/GPS/2022*/**"
-    GPS_files_path = f"{path}/NMEARecorder_2022*"
-    os.makedirs(f"/media/backup/Algo/users/avinoam/safety_analysis/{site}",exist_ok=True)
-    gps_data = GPS_Data(site)
+    # path = f"/media/performance/Data/Cemex/Readymix/{site}/*/GPS/2022*/**"
+    # path = "/media/performance/Data/Cemex/Readymix/Yavne/DL250_20220616-20220707/**"
+    path ='/media/performance/Data/Cemex/Readymix/Mesubim/Shuff_4_CAT_926M_20220606-20220616/*'
+    # path = "/media/performance/Data/Cemex/Readymix/Mesubim/Shuff_4_CAT_926M_20220707-20220725/**"
+    GPS_files_path = f"/media/performance/Data/Cemex/Readymix/Mesubim/Shuff_4_CAT_926M_20220606-20220616/GPS/*/*"
+    iopath = f"/media/backup/Algo/users/avinoam/safety_analysis/{site}"
+    os.makedirs(iopath, exist_ok=True)
+    gps_data = GPS_Data(site, iopath)
 
-    # gps_data.read_GPS_files_from_folder(GPS_files_path)
+    gps_data.read_GPS_files_from_folder(GPS_files_path)
     # gps_data.save(f"/media/backup/Algo/users/avinoam/safety_analysis/{site}/speed.npy")
-    gps_data.load(f"/media/backup/Algo/users/avinoam/safety_analysis/{site}/speed.npy")
+    # gps_data.load(f"/media/backup/Algo/users/avinoam/safety_analysis/{site}/speed.npy")
     #
-    # gps_data.analyse_work_stop_events()
+    gps_data.analyse_work_stop_events()
     # gps_data.save_work_stop_events(f"/media/backup/Algo/users/avinoam/safety_analysis/{site}/work_stop_events.npy")
-    gps_data.load_work_stop_events(f"/media/backup/Algo/users/avinoam/safety_analysis/{site}/work_stop_events.npy")
+    # gps_data.load_work_stop_events(f"/media/backup/Algo/users/avinoam/safety_analysis/{site}/work_stop_events.npy")
 
-    # gps_data.tag_frame_status()
+    gps_data.tag_frame_status()
     # gps_data.save_frame_status(f"/media/backup/Algo/users/avinoam/safety_analysis/{site}/work_frame_status.csv")
-    gps_data.load_frame_status(f"/media/backup/Algo/users/avinoam/safety_analysis/{site}/work_frame_status.csv")
+    # gps_data.load_frame_status(f"/media/backup/Algo/users/avinoam/safety_analysis/{site}/work_frame_status.csv")
 
-
-    gps_data.plot_frame_status()
+    gps_data.plot_frame_status(save=False)
 
     gps_data.count_by_day()
-    gps_data.plot_by_day()
+    gps_data.plot_by_day(save=False)
     print("DONE")
     exit(0)
 
