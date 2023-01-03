@@ -56,7 +56,7 @@ class GPS_Data(object):
         year,month,day = date.year,date.month,date.day
         position = [0, np.array([None,None])]
         positions = []
-        with open(fn,'r') as f:
+        with open(fn,'r', errors='ignore') as f:
             for l in f.readlines():
                 try:
                     # l = f.readline()
@@ -89,27 +89,27 @@ class GPS_Data(object):
                             MS_TO_SEC = 1000
                             MPS_TO_KPH = 3.6
                             UNKNOWN_BUG_FACTOR = 1.0
-                            speed_dx = haversine_distances(np.array([new_postion[1],position[1]]))[0][1]\
-                                       * EARTH_RADIUS /  (new_postion[0]-position[0]) * MS_TO_SEC * MPS_TO_KPH *UNKNOWN_BUG_FACTOR
-                            print(f"{speed:.2f}, {speed_dx:.2f} mode_indicator:{parsed.mode_indicator}")
-                            haversin_speed_data.append((date_time,speed_dx))
+                            # speed_dx = haversine_distances(np.array([new_postion[1],position[1]]))[0][1]\
+                            #            * EARTH_RADIUS /  (new_postion[0]-position[0]) * MS_TO_SEC * MPS_TO_KPH *UNKNOWN_BUG_FACTOR
+                            # print(f"{speed:.2f}, {speed_dx:.2f} mode_indicator:{parsed.mode_indicator}")
+                            # haversin_speed_data.append((date_time,speed_dx))
                         position = new_postion
 
                 except Exception as e:
                     continue
         speed_array = np.array(gps_data)
         haversin_speed_array = np.array(haversin_speed_data)
-        plt.plot(speed_array.T[0],speed_array.T[1], label='speed GPVTG')
-        plt.plot(haversin_speed_array.T[0],haversin_speed_array.T[1], label='speed GNGNS position diff')
-        plt.xlabel("time")
-        plt.ylabel("KPH")
-        plt.title(os.path.split(fn)[1])
-        plt.legend()
-        plt.show()
+        # plt.plot(speed_array.T[0],speed_array.T[1], label='speed GPVTG')
+        # plt.plot(haversin_speed_array.T[0],haversin_speed_array.T[1], label='speed GNGNS position diff')
+        # plt.xlabel("time")
+        # plt.ylabel("KPH")
+        # plt.title(os.path.split(fn)[1])
+        # plt.legend()
+        # plt.show()
 
         positions = np.array(positions).T
-        plt.plot(positions[0],positions[1])
-        plt.show()
+        # plt.plot(positions[0],positions[1])
+        # plt.show()
 
         return speed_array
 
@@ -126,6 +126,7 @@ class GPS_Data(object):
             try:
                 speeds = self._read_GPS_file(fn)
             except Exception as e:
+                print(e)
                 continue
             if speeds.shape[0] != 0:
                 speed_array = np.row_stack((speed_array, speeds))
@@ -222,7 +223,7 @@ class GPS_Data(object):
 
     def plot_frame_status(self, save=False):
         gps_df = self.gps_df
-        for (work_status,color) in [('off','r'), ('pause','y'), ('worked','g')]:
+        for (work_status,color) in [('off','r'), ('worked','g'), ('pause','y')]:
             speed = (gps_df[self.frame_work_status == work_status]).speed
             d = gps_df[self.frame_work_status == work_status].datetime
             plt.scatter(d, speed, label=work_status, s=1, color=color)
@@ -283,7 +284,7 @@ class GPS_Data(object):
 
 
 if __name__ == "__main__":
-    site = "Yavne" # not ready
+    site = "PetachTikva" # not ready
     # site = "Golani"
     # site = "Modiim"
     # site = "Mesubim" # not ready
@@ -294,6 +295,16 @@ if __name__ == "__main__":
     path ='/media/performance/Data/Cemex/Readymix/Mesubim/Shuff_4_CAT_926M_20220606-20220616/*'
     # path = "/media/performance/Data/Cemex/Readymix/Mesubim/Shuff_4_CAT_926M_20220707-20220725/**"
     GPS_files_path = f"/media/performance/Data/Cemex/Readymix/Mesubim/Shuff_4_CAT_926M_20220606-20220616/GPS/*/*"
+
+    # path ='/media/performance/Data/Cemex/Readymix/Modiim/Shuff_4_CAT_972M_20220616-20220703/'
+    # GPS_files_path = f"{path}/GPS/20220623/*"
+
+    # path ='/media/performance02/Data/Cemex_venture/PetachTikva/Cat_930M_PT/20221228-20221221/'
+    # GPS_files_path = f"{path}/GPS/20221216/*"
+
+    path ='/media/performance/Data/Cemex_venture/PetachTikva/Cat_930M_PT/'
+    GPS_files_path = f"{path}/GPS/20221123/*"
+
     iopath = f"/media/backup/Algo/users/avinoam/safety_analysis/{site}"
     os.makedirs(iopath, exist_ok=True)
     gps_data = GPS_Data(site, iopath)
