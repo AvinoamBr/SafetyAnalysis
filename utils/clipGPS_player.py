@@ -27,7 +27,7 @@ def read_GPS_file(fn):
     year, month, day = date.year, date.month, date.day
     position = [0, np.array([None, None])]
     positions = []
-    with open(fn, 'r') as f:
+    with open(fn, 'r', errors='ignore') as f:
         for l in f.readlines():
 
             # l = f.readline()
@@ -57,7 +57,11 @@ def read_GPS_file(fn):
                     continue
                 nmea_lat = parsed.lat
                 nmea_lon = parsed.lon
-                lat, lon = nmea_2latlon(nmea_lat, nmea_lon)
+                try:
+                    lat, lon = nmea_2latlon(nmea_lat, nmea_lon)
+                except:
+                    logging.warning(f"failed to parse GPS line: {ll  }")
+                    continue
                 positions.append((ms_from_midnight, date_time, lat,lon))
     speed_array = np.array(speed_data)
     positions = np.array(positions)
