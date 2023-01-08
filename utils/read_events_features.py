@@ -81,7 +81,7 @@ class EventDataMining(object):
         for root_record in root_records:
             GPS_data_path = f"{root_record}/GPS/{recorder_date_str}/NMEARecorder_{recorder_datetime_str}.csv"
             if os.path.exists(GPS_data_path):
-                logging.info(f"GPS file: {GPS_data_path}")
+                logging.debug(f"GPS file: {GPS_data_path}")
                 self._root_record_path = root_record
                 self._GPS_data_path = GPS_data_path
                 video_path =  f"{root_record}/videoRootDirectory/{recorder_date_str}/{recorder_date_str}_{hour:02d}/"
@@ -123,24 +123,58 @@ class EventDataMining(object):
                  'severity':e.Severity, 'Type of Event': e['Type of Event'], 'vlc_command':self.vlc_command}
 
 
-def position_hist_2d(events):
-    # 2d histogram over position
-    positions = events[['lon','lat']].values
-    lon, lat = positions[:,0], positions[:,1]
+class EventDataMining_new(EventDataMining):
+    def read_events_datetime(self, e):
+        self._raw_event  = e
+        # extract all datetime variables
+        day = int(e['Clip day'])
+        month = int(e['Clip month'])
+        year = int(e['Clip year'])
+        hour = int(e['Clip hour'])
+        minute = int(e['Clip minute'])
+        second =int(e['Clip sec'])
 
-    position_hist = np.histogram2d(lon,lat, bins=5)
-    H, lon_edges, lat_edges = position_hist
+        self._datetime_of_event = datetime.datetime(year,month,day,hour,minute,second)
 
-    return H, lon_edges, lat_edges
+    def add_data_from_GPS(self):
+        video_frameTo_ms_from_md = pd.read_csv(self._video_frameTo_ms_from_md_file[0])
 
+        second_from_video_start = self.seconds_from_video_start
+        index = second_from_video_start * FPS
+        ms_from_md =video_frameTo_ms_from_md.iloc[index].millisecondsFromMidnight
 
-def position_clustering_dbscan(events):
-    positions = events[['lon','lat']].values
-    # eps = np.percentile(np.absolute(np.diff(positions.T.flatten())),50)
-    eps = 0.00065
-    clustering = DBSCAN(eps=eps, min_samples=5).fit(positions)
-    return clustering.labels_
-    pass
+        speed,location = read_GPS_file(self._GPS_data_path)
+
+        speed_index = np.argmin(np.absolute(speed.ms_from_midnight - ms_from_md))
+        speed_from_file = speed.iloc[speed_index].speed
+        pos_index = np.argmin(np.absolute(location.ms_from_midnight - ms_from_md))
+        lat = location.iloc[pos_index]['lat']
+        lon = location.iloc[pos_index]['lon']
+        (_, _, _, hour, _, _) = self._datetime_of_event_extract()
+        e = self._raw_event
+        self._event_dict = {'speed':speed_from_file, 'lat':lat, 'lon':lon, 'hour':hour, 'time':self._datetime_of_event,
+                 'severity':e.Severity, 'Type of Event': e['obstacles_types'], 'vlc_command':self.vlc_command}
+
+    def set_recorder_paths(self):
+        RECORDER_DATETIME_FORMAT = '%Y%m%d-%H%M%S'
+        RECORDER_DATE_FORMAT = '%Y%m%d'
+        #
+        day, month, year, hour, minute, second  = self._datetime_of_event_extract()
+        minute_round = divmod(minute,5)[0]*5
+        file_datetime = datetime.datetime(year,month,day,hour,minute_round,0)
+        #
+        recorder_date_str = datetime.datetime.strftime(file_datetime, RECORDER_DATE_FORMAT ) # YYYYMMDD format for path
+        recorder_datetime_str = datetime.datetime.strftime(file_datetime, RECORDER_DATETIME_FORMAT )
+        root_record = self._raw_event.Recordings_folder.strip()
+        GPS_data_path = f"{root_record}/GPS/{recorder_date_str}/NMEARecorder_{recorder_datetime_str}.csv"
+        logging.debug(f"GPS file: {GPS_data_path}")
+        self._root_record_path = root_record
+        self._GPS_data_path = GPS_data_path
+        video_path =  f"{root_record}/videoRootDirectory/{recorder_date_str}/{recorder_date_str}_{hour:02d}/"
+        self._video_files = glob.glob(f"{video_path}/*{recorder_datetime_str}*.avi")
+        self._video_frameTo_ms_from_md_file = glob.glob(f"{video_path}/*{recorder_datetime_str}*.csv")
+        if len(self._video_files) <=1 :
+            logging.warning(f"found {len(self._video_files)} video clips for event")
 
 
 if __name__ == "__main__":
@@ -160,6 +194,22 @@ if __name__ == "__main__":
         events_df.to_csv('/media/backup/Algo/users/avinoam/Cemex_manager/ModiimEvents_DataFrame.csv')
     else:
         events_df = pd.read_csv('/media/backup/Algo/users/avinoam/Cemex_manager/ModiimEvents_DataFrame.csv')
+
+    EXTRACT_EVENTS_NEW = True
+    if EXTRACT_EVENTS_NEW:
+        events_file = '/home/ception/Downloads/csv_file_2023_01_08_10_03_20.csv'
+        events_list = pd.read_csv(events_file)
+        events_list = events_list[events_list[' MSG ID']==11]
+        event_dicts = []
+        event_data_mining = EventDataMining_new()
+        N_events = len(events_list)
+        for (i,(row,e)) in enumerate(events_list.iterrows()):
+            logging.info(f"event {i}/{N_events}")
+            event_data_mining.read_events_datetime(e)
+            event_data_mining.set_recorder_paths()
+            event_data_mining.add_data_from_GPS()
+            event_dicts.append(event_data_mining.event_dict)
+        events_df = pd.DataFrame(event_dicts)
 
     events_df = events_df[:-1]
     map_fn = '/home/ception/Downloads/Govmap/Govmap.png'
@@ -189,7 +239,7 @@ if __name__ == "__main__":
     # plt.subplot(2,2,2)
     bins = np.arange(24,step=2)
     bottom = np.zeros(bins.shape[0]-1)
-    for e_type in ['Heavy Vehicle', 'Light Vehicle', 'Person']:
+    for e_type in events_df['Type of Event'].value_counts().index:
         df = events_df[events_df['Type of Event']==e_type]
         h, *_ = plt.hist(df.hour, bins=bins, bottom=bottom, label=e_type)
         bottom += h

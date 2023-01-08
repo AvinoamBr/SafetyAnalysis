@@ -45,7 +45,7 @@ def read_GPS_file(fn):
                 continue
             if ll.startswith("$GPVTG"):  # and parsed.spd_over_grnd_kmph>0:
                 speed_value = parsed.spd_over_grnd_kmph
-                if speed_value == None:
+                if speed_value == None or speed_value=='\n':
                     speed_data.append((ms_from_midnight, date_time, None))
                     continue
                 speed = float(speed_value)
