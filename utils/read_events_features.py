@@ -118,8 +118,9 @@ class EventDataMining(object):
         pos_index = np.argmin(np.absolute(location.ms_from_midnight - ms_from_md))
         lat = location.iloc[pos_index]['lat']
         lon = location.iloc[pos_index]['lon']
-        (_, _, _, hour, _, _) = self._datetime_of_event_extract()
-        self._event_dict = {'speed':speed_from_file, 'lat':lat, 'lon':lon, 'hour':hour, 'time':self._datetime_of_event,
+        (_, _, _, hour, minute, _) = self._datetime_of_event_extract()
+        continuous_hr = hour + minute/60
+        self._event_dict = {'speed':speed_from_file, 'lat':lat, 'lon':lon, 'hour':continuous_hr, 'time':self._datetime_of_event,
                  'severity':e.Severity, 'Type of Event': e['Type of Event'], 'vlc_command':self.vlc_command}
 
 
@@ -150,7 +151,8 @@ class EventDataMining_new(EventDataMining):
         pos_index = np.argmin(np.absolute(location.ms_from_midnight - ms_from_md))
         lat = location.iloc[pos_index]['lat']
         lon = location.iloc[pos_index]['lon']
-        (_, _, _, hour, _, _) = self._datetime_of_event_extract()
+        (_, _, _, hour, minute, _) = self._datetime_of_event_extract()
+        hour = np.round(hour + minute/60,2)
         e = self._raw_event
         self._event_dict = {'speed':speed_from_file, 'lat':lat, 'lon':lon, 'hour':hour, 'time':self._datetime_of_event,
                  'severity':e.Severity, 'Type of Event': e['obstacles_types'], 'vlc_command':self.vlc_command}
@@ -267,6 +269,7 @@ if __name__ == "__main__":
     c = np.array((200,100,100))/255
     plt.scatter(df.lon, df.lat, alpha=0.8, c=c, marker='*', s=5)
     plt.show()
+    pass
 
 
 

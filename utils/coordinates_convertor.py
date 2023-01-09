@@ -40,7 +40,7 @@ class CoordinateConvector(object):
         E = E + scale_x * x_pixels
         N = N + scale_y * y_pixels
         right, bottom =  self._from_ITM_to_WGS84(E, N)
-        extent = (left,right,top,bottom)
+        extent = (left,right,bottom, top)
         return extent
 
 
