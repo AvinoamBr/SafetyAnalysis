@@ -13,6 +13,11 @@ import matplotlib.animation as animation
 from read_GPS import GPS_Data, datetime_from_file_path, nmea_2latlon, convert_from_ms
 import numpy as np
 
+from utils.coordinates_convertor import CoordinateConvector
+
+MODIIM_MAP_FN =  '/media/backup/Algo/users/avinoam/safety_analysis/Modiim/map/Govmap.png'
+
+
 def read_GPS_file(fn):
     '''
     read a single ception GPS file
@@ -78,6 +83,10 @@ class GpsVideoPlayer(object):
         self._video_file = ""
         self._GPS_file = ""
         self.output = None
+        map_fn = MODIIM_MAP_FN
+        self.map = plt.imread(map_fn)
+        pgw_fn = '/media/backup/Algo/users/avinoam/safety_analysis/Modiim/map/Govmap.pgw'
+        self.extent = CoordinateConvector().convert_pgw_ITM_to_extent(pgw_fn, self.map)
 
     @property
     def video_file(self, video_file):
@@ -149,6 +158,7 @@ class GpsVideoPlayer(object):
                     plt.imshow(im)
                     plt.draw()
                     ax = plt.subplot(1,2,2)
+                    plt.imshow(self.map, extent=self.extent)
                     plt.plot(positions.lon,positions.lat)
                     plt.scatter(positions.iloc[pos_index]['lon'], positions.iloc[pos_index]['lat'], s=50, c='r')
                     plt.pause(0.0000000001)
@@ -219,16 +229,22 @@ if __name__ == "__main__":
         root = '/media/performance/Data/Cemex/Readymix/Modiim/Shuff_4_CAT_972M_20220616-20220703/'
         time_stamp = '20220623-173000'
 
-    if time_stamp:
-        gps_video_player._video_file = f'{root}/videoRootDirectory/{time_stamp[:8]}/{time_stamp[:8]}_{time_stamp[9:11]}/1_{time_stamp}_0030h.avi'
-        gps_video_player._GPS_file = f'{root}/GPS/{time_stamp.split("-")[0]}/NMEARecorder_{time_stamp}.csv'
+    # modiim start of day, for map overlay
+    if True:
+        root =  '/media/performance/Data/Cemex/Readymix/Modiim/Shuff_4_CAT_972M_20220616-20220703/'
+        time_stamp = '20220623-052500'
 
-        print(gps_video_player._video_file)
+    if time_stamp:
+        gps_video_player.video_file = f'{root}/videoRootDirectory/{time_stamp[:8]}/{time_stamp[:8]}_{time_stamp[9:11]}/1_{time_stamp}_0030h.avi'
+        gps_video_player.GPS_file = f'{root}/GPS/{time_stamp.split("-")[0]}/NMEARecorder_{time_stamp}.csv'
+
         print(gps_video_player._video_file)
         print(gps_video_player._GPS_file)
 
 
         gps_video_player.play()
+
+
 
     elif date:
         videos = glob.glob(f'{root}/videoRootDirectory/{date}/*/1_*.avi')
