@@ -14,7 +14,7 @@ from utils.read_events_features import EventDataMining_new
 im = plt.imread('/media/backup/Algo/users/avinoam/safety_analysis/Modiim/map/Govmap.png')
 pgw_fn = '/media/backup/Algo/users/avinoam/safety_analysis/Modiim/map/Govmap.pgw'
 extent = CoordinateConvector().convert_pgw_ITM_to_extent(pgw_fn, im)
-
+# CoordinateConvector().from_ITM_to_WGS84()
 def position_hist_2d(events):
     # 2d histogram over position
     positions = events[['lon','lat']].values
@@ -54,19 +54,19 @@ def clustering_dbscan(events):
 
 
     f = features.T[-1]
-    plt.subplot(1,1,1)
-    plt.scatter(f,linear_norm(f), label='linear_norm')
-    # plt.scatter(f,linear_norm(np.log(f+1)), label='linear_norm: log(speed+1)')
-    plt.scatter(f,gaussian_norm(f), label= 'gaussian_norm')
-    plt.xlabel('speed [kph]')
-    plt.ylabel('normalized')
-
-    plt.legend()
-    plt.show()
+    # plt.subplot(1,1,1)
+    # plt.scatter(f,linear_norm(f), label='linear_norm')
+    # # plt.scatter(f,linear_norm(np.log(f+1)), label='linear_norm: log(speed+1)')
+    # plt.scatter(f,gaussian_norm(f), label= 'gaussian_norm')
+    # plt.xlabel('speed [kph]')
+    # plt.ylabel('normalized')
+    #
+    # plt.legend()
+    # plt.show()
     features.T[i] = linear_norm(f)
 
-    plt.scatter(f,gaussian_norm(f), label='gaussian')
-    plt.scatter(f,linear_norm(f), label='linear_norm')
+    # plt.scatter(f,gaussian_norm(f), label='gaussian')
+    # plt.scatter(f,linear_norm(f), label='linear_norm')
 
 
     eps = 0.5
